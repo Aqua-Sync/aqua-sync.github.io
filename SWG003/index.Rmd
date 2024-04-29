@@ -1,0 +1,123 @@
+---
+title: "AquaSync SWG 3"
+date: "2024-04-20"
+leafletmap: true
+always_allow_html: yes
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readxl)
+library(sf)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(leaflet)
+library(reactable)
+library(crosstalk)
+
+```
+
+### Sources of size data
+
+```{r map, echo=FALSE, message=FALSE, warning=FALSE, paged.print=TRUE}
+
+coord_text <- function(valueE,valueN, n_digits=3, lines=2){
+  dirE <- ifelse(valueE<0,"W","E")
+  dirN <- ifelse(valueN<0,"S","N")
+  
+  valueE <- round(abs(valueE), digits=n_digits)
+  valueN <- round(abs(valueN), digits=n_digits)
+  
+  s <- paste0(dirN," ",valueN,"°", ifelse(lines>1,"<BR>"," "), dirE," ",valueE,"°")
+  
+  return(s)
+}
+
+
+popup_text <- function(site, year, group, owner, E, N){
+  site <- ifelse(is.na(site),"",site)
+  year <- ifelse(is.na(year),"",paste0("[",year,"]"))
+  s <- ifelse(site=="" & year=="",""," ")
+  s <- paste0(site,s,year)
+  s <- ifelse(s=="","",paste0("<b>",s,"</b>"))
+  s <- ifelse(is.na(group),s,paste0(s,"<br>Organism groups: ",group))
+  s <- ifelse(is.na(owner),s,paste0(s,"<br>Data owner: ",owner))
+  s  <- paste0(s,"<br>", coord_text(E, N))
+  return(s)
+}
+
+
+  
+df<-read.table(file="sites.csv", sep=";", header=T, allowEscapes=F, quote = "\"")
+
+df <- df %>%
+  filter(!is.na(geographical_longitude))  %>%
+  filter(!is.na(geographical_latitude)) %>%
+  rename(lon=geographical_longitude,
+         lat=geographical_latitude) 
+df$ID <- 1:nrow(df)
+
+df <- df %>%
+  mutate(organism_groups = stringr::str_to_title(organism_groups))
+df <- df %>%
+  mutate(organism_groups = ifelse(is.na(organism_groups), "Not specified", organism_groups))
+
+df <- df %>%
+  select(ID,data_owner,site,
+         sampling_year,region,lat,lon, 
+         organism_groups,
+         trophic_levels) %>%
+  rowwise() %>%
+  mutate(label=popup_text(site,sampling_year, organism_groups, data_owner, lon, lat)) %>%
+  ungroup()
+
+
+df_ct <- SharedData$new(df)
+
+
+owner_filter <- filter_select("data_owner", "Data owner", df_ct, group = ~data_owner)
+
+group_filter <- filter_checkbox("groups", "Organism groups", df_ct, group = ~organism_groups, 
+                               inline = FALSE)
+
+mypal <- c()
+
+cbp1 <- c("#999999", "#E69F00", "#56B4E9", "#009E73",
+          "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+cbp1 <- c("#0072B2", "#009E73","#E69F00","#999999")
+
+
+# '#0000FF','#00ff00','#fb6a4a','#fb6a4a'
+
+lm <- leaflet(df_ct, width = '100%') %>% 
+  addProviderTiles(providers$Esri.WorldGrayCanvas, group = 'Default') %>%
+  addScaleBar('bottomright') %>%
+  addCircleMarkers(group = 'Size data', 
+                   radius = 3,
+                   stroke = F, 
+                   fillOpacity = 0.6,
+                   #fillColor = ~organism_groups,
+                   label = ~data_owner,
+                   popup = ~label,
+                   fillColor = ~sapply(organism_groups, switch, USE.NAMES = FALSE,
+                      'Fish' = cbp1[1],
+                      'Invertebrates + Fish' = cbp1[2],
+                      'Invertebrates' = cbp1[3],
+                      'Not specified' = cbp1[4]))  %>%
+  addLegend("topright", colors = cbp1[1:4], 
+            labels = c('Fish','Invertebrates + Fish','Invertebrates','Not specified'),
+    title = "Organisms",
+    opacity = 1
+  )
+
+bscols(lm, list(group_filter,owner_filter),
+       widths=c(9,3))
+
+
+```
+
+
